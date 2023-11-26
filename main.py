@@ -4,16 +4,19 @@ import os
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
+load_dotenv()
 import auth
 
-load_dotenv()
-# Setup loggin
+
+## Setup logging
 logging.basicConfig(filename='mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
 
 API_KEY = os.getenv('API_KEY')
 bot = telebot.TeleBot(API_KEY)
+
+## CODE BELOW TO BE REVIEWED ##
 
 # User states
 USER_STATE = {}  # Stores the state of each user
