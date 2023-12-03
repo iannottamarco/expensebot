@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
-logging.basicConfig(filename='mylogs.log',
+logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
 
@@ -26,12 +26,12 @@ def get_db_uri():
 
 ssl_args = {
     'ssl': {
-        'ca': './cacert.pem'
+        'ca': './Misc/cacert.pem'
     }
 }
 
 # Creating the engine
-engine = create_engine(get_db_uri(), echo=True, connect_args=ssl_args)
+engine = create_engine(get_db_uri(), connect_args=ssl_args)
 
 Session = sessionmaker(bind=engine)
 
@@ -59,3 +59,12 @@ def add_and_commit(session, obj):
         session.rollback()
         logging.error(f'Error during add and commit: {e}')
         raise  # Re-raise the exception for the calling code to handle
+
+
+def confirm_operation(telegram_user_id,userprovided_id):
+    if telegram_user_id == userprovided_id:
+        logging.info(f'{telegram_user_id} has confirmed the operation')
+        return True
+    else:
+        logging.info(f'{telegram_user_id} failed confirming the operation')
+        return False

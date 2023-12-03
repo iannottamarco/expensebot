@@ -1,10 +1,9 @@
-from db_utils import Session
-from models import User
-from db_utils import add_to_session_and_close
+from .db_utils import Session, add_to_session_and_close
+from .models import User
 
 import logging
 
-logging.basicConfig(filename='mylogs.log',
+logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
 
@@ -25,6 +24,8 @@ def is_user_registered(telegram_id):
     finally:
         session.close()
 
+print(is_user_registered(17073726))
+
 
 def create_user(email, telegram_id, chat_id=None, first_name=None, last_name=None):
     session = Session()
@@ -38,6 +39,8 @@ def create_user(email, telegram_id, chat_id=None, first_name=None, last_name=Non
         raise
     finally:
         session.close()
+
+
 
 def delete_user(telegram_id):
     session = Session()
@@ -62,4 +65,3 @@ def delete_user(telegram_id):
         return False
     finally:
         session.close()
-
