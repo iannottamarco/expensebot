@@ -23,7 +23,6 @@ class User(Base):
     email = Column(String(50), unique=True)
     telegram_id = Column(Integer, unique=True, nullable=False)
     chat_id = Column(String(255), unique=True, nullable=False)
-    spreadsheet_id = Column(String(255),unique=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -53,6 +52,18 @@ class Expense(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+## GSHEET
+class UserGoogleSheetsCredentials(Base):
+    __tablename__ = 'gsheet'
+
+    user_id = Column(Integer, primary_key=True)
+    access_token = Column(String(255))
+    refresh_token = Column(String(255))
+    token_expiry = Column(DateTime)
+    spreadsheet_id = Column(String(255))
+    sheet_name = Column(String(30))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 if __name__ == '__main__':
     print("Creating tables...")

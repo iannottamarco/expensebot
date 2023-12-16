@@ -10,6 +10,7 @@ from telegram.ext import (
 # Import Functions
 from app.users import is_user_registered, create_user
 from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status
+from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
 
 ## Setup logging
 logging.basicConfig(
@@ -25,6 +26,11 @@ load_dotenv()
 API_KEY = os.getenv('API_KEY')
 
 
+#####################
+## FLASK
+from app.flask_app import app as flask_app
+from threading import Thread
+
 
 
 ######################
@@ -38,6 +44,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("💸 Add an Expense", callback_data='add_expense')],
             [InlineKeyboardButton("⚙️ Settings", callback_data='user_settings')],
+            [InlineKeyboardButton("📞 Get Support",url= 'https://t.me/fratebanca')],
             [InlineKeyboardButton("🌐 GitHub Repository", url='https://github.com/iannottamarco/expensebot')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -93,6 +100,7 @@ async def go_backhome(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Call the start function to display the main menu
     await start(update, context) 
+
 
 ######################
 ## CATEGORIES SETTINGS
@@ -156,6 +164,7 @@ async def complete_categorycreation(update: Update, context: ContextTypes.DEFAUL
 
     return ConversationHandler.END
 
+
 ######################
 ## DEACTIVATE CATEGORY
 async def send_inactive_category_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -208,6 +217,7 @@ async def handle_category_deactivation(update: Update, context: ContextTypes.DEF
     
     asyncio.sleep(1.2)
     await show_cat_setting(update, context)
+
 
 ######################
 ## REACTIVATE CATEGORY
@@ -367,9 +377,63 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
     last_name = context.user_data.get('last_name')
 
     create_user(email, user_id, chat_id, first_name, last_name)
-    await update.message.reply_text('Registration complete!')
+    await update.message.reply_text('Registration complete, go back to the home /start')
     return ConversationHandler.END
 
+######################
+## GET SPREADSHEET_ID
+SPREADSHEET_ID, SHEET_NAME = range(2)
+
+async def get_spreadsheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    return await ask_spreadsheetid(update, context)
+
+async def ask_spreadsheetid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback query
+    
+    logger.info(f"Received callback query for spreadsheet_id from user: {query.from_user.id}")
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.message.reply_text('Please enter your Google Sheet link:', reply_markup=reply_markup)
+    logger.info("Asking user for their spreadsheet_id")
+
+    return SPREADSHEET_ID
+
+async def ask_sheetname(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    extracted_id = extract_spreadsheet_id(update.message.text)
+
+    if extracted_id is None:
+        await update.message.reply_text("The spreadsheet ID is not valid. Please /start again and provide a valid Google Sheets link or ID.")
+        return ConversationHandler.END  # Ends the conversation
+    else:
+        context.user_data['spreadsheet_id'] = extracted_id
+
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('How would you like to call the sheet containing the rawdata? (Max 15 characters)', reply_markup=reply_markup)
+
+    return SHEET_NAME
+
+async def complete_spreadsheetcreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['spreadsheet_name'] = update.message.text
+
+    if len(update.message.text) > 15:
+        await update.message.reply_text('The name should be no more than 15 characters. Please try again.')
+        return SHEET_NAME
+    
+    user_id = update.effective_user.id
+    spreadsheet_id = context.user_data.get('spreadsheet_id')
+    sheet_name = context.user_data.get('sheet_name')
+
+    add_basicinfo(user_id,spreadsheet_id,sheet_name)
+    authurl = get_google_auth_url()
+
+    await update.message.reply_text(f'Grant the bot access using this link {authurl}')
+
+    return ConversationHandler.END
 
 ######################
 ## CANCEL
@@ -378,9 +442,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Conversation cancelled. Type /start to begin again.')
     return ConversationHandler.END
 
+#####################
+## BOT HANDLERS
 
-
-if __name__ == '__main__':
+def run_bot():
     application = ApplicationBuilder().token(API_KEY).build()
 
     #START
@@ -404,6 +469,18 @@ if __name__ == '__main__':
     ## SETTINGS
     settings_handler = CallbackQueryHandler(show_settings, pattern='^user_settings$')
     application.add_handler(settings_handler)
+
+    ## SPREADSHEET SETUP
+    spreadsheet_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler( get_spreadsheet,pattern = '^connect_gsheet$')],
+        states = {
+            SPREADSHEET_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sheetname)],
+            SHEET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, complete_spreadsheetcreation)]
+        },
+        fallbacks=[CallbackQueryHandler(cancel_registration, pattern='^cancel$')],
+        per_message=False
+    )
+    application.add_handler(spreadsheet_conv_handler)
 
     ## CATEGORY SETTINGS
     cat_settings_handler = CallbackQueryHandler(show_cat_setting, pattern='^manage_categories$')
@@ -445,3 +522,11 @@ if __name__ == '__main__':
 
     # Start the bot
     application.run_polling()
+
+
+if __name__ == '__main__':
+
+    # Run bot in separate thread
+    Thread(target=run_bot()).start()
+    # Run flask in main thread
+    flask_app.run(port=5000)

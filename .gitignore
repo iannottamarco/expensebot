@@ -5,6 +5,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Google Credentials
+*googleusercontent.com.json
+
 # SSL Certificate
 *.pem
 
