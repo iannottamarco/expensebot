@@ -2,6 +2,7 @@ import logging
 import re
 import os
 import asyncio
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -11,6 +12,7 @@ from telegram.ext import (
 from app.users import is_user_registered, create_user
 from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status
 from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
+from app.expenses import add_expense
 
 ## Setup logging
 logging.basicConfig(
@@ -45,6 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("💸 Add an Expense", callback_data='add_expense')],
             [InlineKeyboardButton("⚙️ Settings", callback_data='user_settings')],
             [InlineKeyboardButton("📞 Get Support",url= 'https://t.me/fratebanca')],
+            [InlineKeyboardButton("☕️ Buy me a Coffee",url= 'https://www.buymeacoffee.com/marcoiannotta')],
             [InlineKeyboardButton("🌐 GitHub Repository", url='https://github.com/iannottamarco/expensebot')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -68,6 +71,129 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="👋 Welcome to @amibrokepybot, the bot that helps you quickly track your expenses 💸. Get started now and take control of your financial health! 📊",
             reply_markup=reply_markup
         )
+
+
+######################
+## ADD EXPENSE
+EXPENSE_AMOUNT, EXPENSE_CATEGORY, EXPENSE_DATE = range(3)
+
+async def start_expensecreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    return await ask_expenseamount(update, context)
+
+async def ask_expenseamount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback query
+    
+    logger.info(f"Received callback query for expense amount from user: {query.from_user.id}")
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.message.reply_text(
+        'Please enter your expense amount: (for decimal use ".", comma separator will soon be implemented.)', 
+        reply_markup=reply_markup
+    )
+    logger.info("Asking user for their expense amount")
+
+    return EXPENSE_AMOUNT
+
+async def ask_expensecategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    context.user_data['expense_amount'] = update.message.text
+    user_id = update.message.from_user.id
+    
+    # Fetch categories and their IDs
+    categories = get_categories_and_id(user_id, 1)
+
+    # Create inline keyboard buttons for each category
+    keyboard_buttons = [
+        [InlineKeyboardButton(category[0], callback_data=f"expensecat_{category[1]}")]
+        for category in categories
+    ]
+
+    # Add 'Cancel' button
+    keyboard_buttons.append([InlineKeyboardButton("⬅️ Cancel", callback_data='cancel')])
+
+    # Create InlineKeyboardMarkup
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+
+    # Send the message with inline keyboard
+    await update.message.reply_text(
+        "Select the category of the expense:",
+        reply_markup=reply_markup
+    )
+
+    return EXPENSE_CATEGORY  # Assuming the next state is EXPENSE_DATE
+
+
+async def ask_expensedate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This function is expected to be triggered after choosing a category, which is a callback query
+    query = update.callback_query
+    await query.answer()    
+
+    category_id = query.data.split('_')[1]
+    context.user_data['expense_category_id'] = category_id
+    print(category_id)
+    # Define date options
+    dates = [
+        ("📅 Today", datetime.now().strftime("%Y-%m-%d")),
+        ("🗓 Yesterday", (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")),
+        ("🗓 Day Before Yesterday", (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"))
+    ]
+
+    # Create keyboard buttons for each date option
+    keyboard_buttons = [
+        [InlineKeyboardButton(date_label, callback_data=f"date_{date_str}")]
+        for date_label, date_str in dates
+    ]
+
+    # Add 'Cancel' button
+    keyboard_buttons.append([InlineKeyboardButton("⬅️ Cancel", callback_data='cancel')])
+
+    # Create InlineKeyboardMarkup
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+
+    # Send the message with inline keyboard
+    await query.message.reply_text(
+        "Select the date:",
+        reply_markup=reply_markup
+    )
+
+    print(query.data)
+
+    return EXPENSE_DATE
+
+
+async def complete_expensecreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    query = update.callback_query
+    await query.answer()
+    print(query.data)
+    # Assuming the callback data is the date or an identifier for the date
+    exp_date = query.data.split('_')[1]
+    context.user_data['expense_date'] = exp_date
+
+    user_id = update.effective_user.id
+    print(user_id)
+    expense_amount = context.user_data.get('expense_amount')
+    print(expense_amount)
+    expense_category_id = context.user_data.get('expense_category_id')
+    print(expense_category_id)
+    expense_date = context.user_data.get('expense_date')
+    print(expense_date)
+
+    # Validate the data and add the expense (validation and error handling not shown here)
+    try:
+        add_expense(user_id=user_id, amount=expense_amount, date=expense_date, category_id=expense_category_id)
+        # Confirmation message to the user
+        await query.message.reply_text(f'Expense created!\nAmount: {expense_amount}\nCategory ID: {expense_category_id}\nDate: {expense_date}\n\nGo back to /start or create a /newexpense')
+
+    except:
+        await query.message.reply_text('There was an error adding your expense.')
+
+    return ConversationHandler.END
+
 
 
 ######################
@@ -451,6 +577,21 @@ def run_bot():
     #START
     start_handler = CommandHandler('start', start)
     application.add_handler(start_handler)
+
+    ## ADD EXPENSE FLOW
+    newexpense_conv_handler = ConversationHandler(
+    entry_points=[CallbackQueryHandler(start_expensecreation, pattern='^add_expense$')],
+    states={
+        EXPENSE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_expensecategory)],
+        EXPENSE_CATEGORY: [CallbackQueryHandler(ask_expensedate, pattern='^expensecat_')],
+        EXPENSE_DATE: [CallbackQueryHandler(complete_expensecreation, pattern='^date_')],
+        # Transition to complete_expensecreation after EXPENSE_DATE
+    },
+    fallbacks=[CallbackQueryHandler(cancel_registration, pattern='^cancel$')],
+    per_message=False
+    )
+    application.add_handler(newexpense_conv_handler)
+
 
     ## REGISTRATION FLOW
     registration_conv_handler = ConversationHandler(

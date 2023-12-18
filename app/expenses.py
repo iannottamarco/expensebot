@@ -7,10 +7,11 @@ logging.basicConfig(filename='./logs/mylogs.log',
                     level=logging.DEBUG)
 
 
-def add_expense(amount, category_id, user_id):
+def add_expense(amount, category_id, user_id,date):
     session = Session()
+    date = str(date)
     try:
-        new_expense = Expense(amount=amount, category_id=category_id, user_id=user_id)
+        new_expense = Expense(amount=amount, category_id=category_id, user_id=user_id,date=date)
         add_to_session_and_close(session,new_expense)
         logging.info(f'Expense added by user:{user_id} : {amount}')
         return new_expense
@@ -20,7 +21,6 @@ def add_expense(amount, category_id, user_id):
         return None
     finally:
         session.close()
-
 
 def delete_expense(user_id,expense_id):
     session = Session() 
