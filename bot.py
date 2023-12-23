@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 # Import Functions
 from app.users import is_user_registered, create_user
-from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status
+from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status, get_category_name
 from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
 from app.expenses import add_expense
 
@@ -75,7 +75,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ######################
 ## ADD EXPENSE
-EXPENSE_AMOUNT, EXPENSE_CATEGORY, EXPENSE_DATE = range(3)
+EXPENSE_AMOUNT, EXPENSE_CATEGORY, EXPENSE_DESCRIPTION, EXPENSE_DATE = range(4)
 
 async def start_expensecreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -126,15 +126,31 @@ async def ask_expensecategory(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     return EXPENSE_CATEGORY  # Assuming the next state is EXPENSE_DATE
 
-
-async def ask_expensedate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This function is expected to be triggered after choosing a category, which is a callback query
+async def ask_expensedescription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     # This function is expected to be triggered after choosing a category, which is a callback query
     query = update.callback_query
     await query.answer()    
 
     category_id = query.data.split('_')[1]
     context.user_data['expense_category_id'] = category_id
-    print(category_id)
+
+    logger.info(f"Received callback query for expense amount from user: {query.from_user.id}")
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.message.reply_text(
+        'Please enter your expense description:', 
+        reply_markup=reply_markup
+    )
+    logger.info("Asking user for their expense description")
+
+    return EXPENSE_DESCRIPTION
+
+
+async def ask_expensedate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    context.user_data['expense_desription'] = update.message.text
+
     # Define date options
     dates = [
         ("📅 Today", datetime.now().strftime("%Y-%m-%d")),
@@ -154,13 +170,19 @@ async def ask_expensedate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Create InlineKeyboardMarkup
     reply_markup = InlineKeyboardMarkup(keyboard_buttons)
 
-    # Send the message with inline keyboard
-    await query.message.reply_text(
+     # Send the message with inline keyboard
+    await update.message.reply_text(
         "Select the date:",
         reply_markup=reply_markup
     )
 
-    print(query.data)
+    # # Send the message with inline keyboard
+    # await query.message.reply_text(
+    #     "Select the date:",
+    #     reply_markup=reply_markup
+    # )
+
+    # print(query.data)
 
     return EXPENSE_DATE
 
@@ -180,14 +202,17 @@ async def complete_expensecreation(update: Update, context: ContextTypes.DEFAULT
     print(expense_amount)
     expense_category_id = context.user_data.get('expense_category_id')
     print(expense_category_id)
+    expense_description = context.user_data.get('expense_description')
+    print(expense_description)
     expense_date = context.user_data.get('expense_date')
     print(expense_date)
 
     # Validate the data and add the expense (validation and error handling not shown here)
     try:
-        add_expense(user_id=user_id, amount=expense_amount, date=expense_date, category_id=expense_category_id)
+        add_expense(user_id=user_id, amount=expense_amount, date=expense_date, category_id=expense_category_id, description=expense_description)
         # Confirmation message to the user
-        await query.message.reply_text(f'Expense created!\nAmount: {expense_amount}\nCategory ID: {expense_category_id}\nDate: {expense_date}\n\nGo back to /start or create a /newexpense')
+        catname = get_category_name(user_id=user_id,category_id=expense_category_id)
+        await query.message.reply_text(f'Expense created!\nAmount: {expense_amount}\nCategory: {catname}\nDate: {expense_date}\n\nGo back to /start or create a /newexpense')
 
     except:
         await query.message.reply_text('There was an error adding your expense.')
@@ -451,22 +476,13 @@ async def ask_last_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return LAST_NAME
 
-import re
-EMAIL_REGEX = r'\b[A-Za-z0-9._%+-]{2,}@[A-Za-z0-9.-]{3,}\.(com|org|net|edu|gov|mil|co|uk|us|info|it|es|eu|fr)\b'
 
 async def ask_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if 'email' key is already in user_data, which means this function has been called before
     if 'email' in context.user_data:
         user_input = update.message.text
-
-        if re.fullmatch(EMAIL_REGEX, user_input):
-            context.user_data['email'] = user_input
-            # Proceed to the next step of your bot's logic
-            # For example, return NEXT_STATE
-        else:
-            # If the input is not a valid email, ask again
-            await update.message.reply_text('Invalid email format. Please enter a valid email:')
-            return EMAIL
+        context.user_data['email'] = user_input
+        
     else:
         # Store the last name from the previous step
         context.user_data['last_name'] = update.message.text
@@ -583,9 +599,9 @@ def run_bot():
     entry_points=[CallbackQueryHandler(start_expensecreation, pattern='^add_expense$')],
     states={
         EXPENSE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_expensecategory)],
-        EXPENSE_CATEGORY: [CallbackQueryHandler(ask_expensedate, pattern='^expensecat_')],
-        EXPENSE_DATE: [CallbackQueryHandler(complete_expensecreation, pattern='^date_')],
-        # Transition to complete_expensecreation after EXPENSE_DATE
+        EXPENSE_CATEGORY: [CallbackQueryHandler(ask_expensedescription, pattern='^expensecat_')],
+        EXPENSE_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_expensedate)],
+        EXPENSE_DATE: [CallbackQueryHandler(complete_expensecreation, pattern='^date_')]
     },
     fallbacks=[CallbackQueryHandler(cancel_registration, pattern='^cancel$')],
     per_message=False

@@ -7,11 +7,12 @@ logging.basicConfig(filename='./logs/mylogs.log',
                     level=logging.DEBUG)
 
 
-def add_expense(amount, category_id, user_id,date):
+def add_expense(amount, category_id, user_id,description,date):
     session = Session()
     date = str(date)
     try:
-        new_expense = Expense(amount=amount, category_id=category_id, user_id=user_id,date=date)
+        amount = float(amount.replace(',', '.'))
+        new_expense = Expense(amount=amount, category_id=category_id, user_id=user_id,description=description,date=date)
         add_to_session_and_close(session,new_expense)
         logging.info(f'Expense added by user:{user_id} : {amount}')
         return new_expense
@@ -59,6 +60,24 @@ def retrieve_last5_expenses(user_id):
     except Exception as e:
         session.rollback()
         logging.error(f'Error retrieving last 5 expenses of user:{user_id}: {e}')
+        return None
+    finally:
+        session.close()
+
+def retrieve_last_expense_id(user_id):
+    session = Session()
+    try:
+        # Perform the query with a join and select specific fields
+        expense_id = session.query(Expense.id)\
+                          .filter(Expense.user_id == user_id)\
+                          .order_by(Expense.created_at.desc())\
+                          .limit(1)\
+                          .all()
+        logging.info(f'{user_id} last expense retrieved.')
+        return expense_id
+    except Exception as e:
+        session.rollback()
+        logging.error(f'Error retrieving last expense of user:{user_id}: {e}')
         return None
     finally:
         session.close()

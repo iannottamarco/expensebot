@@ -48,6 +48,7 @@ class Expense(Base):
     amount = Column(Float, nullable=False)
     user_id = Column(Integer, nullable=False)
     category_id = Column(Integer, nullable=False)
+    description = Column(String(300))
     date = Column(DateTime,default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

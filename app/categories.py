@@ -13,8 +13,8 @@ def add_category(user_id, name, description=None):
     try:
         category_count = count_active_categories(user_id)
         
-        if category_count >= 10:
-            logging.error(f'User {user_id} has reached the maximum number of categories (10).')
+        if category_count >= 15:
+            logging.error(f'User {user_id} has reached the maximum number of categories (15).')
             return 'Maximum number of categories reached'
 
         existing_category = session.query(Category)\
@@ -185,3 +185,17 @@ def generate_categories_message(user_id, type=0):
         logging.error(f'Error generating categories message for user {user_id}: {e}')
         return "An error occurred while retrieving categories."
 
+
+def get_category_name(user_id,category_id):
+    session = Session()
+
+    try:
+        category_name = session.query(Category)\
+                                   .filter(Category.user_id == user_id, 
+                                           Category.id == category_id)\
+                                   .first()
+        return category_name.name
+    
+    except Exception as e:
+        logging.error(f'Error retrieving user category for {user_id} and category_id {category_id}: {e}')
+        return "An error occurred while retrieving category"
