@@ -11,7 +11,7 @@ def add_expense(amount, category_id, user_id,description,date):
     session = Session()
     date = str(date)
     try:
-        amount = float(amount.replace(',', '.'))
+        amount = float(str(amount).replace(',', '.'))
         new_expense = Expense(amount=amount, category_id=category_id, user_id=user_id,description=description,date=date)
         add_to_session_and_close(session,new_expense)
         logging.info(f'Expense added by user:{user_id} : {amount}')
@@ -32,10 +32,9 @@ def delete_expense(user_id,expense_id):
         if expense:
             session.delete(expense)
             session.commit()
-            return "Expense deleted successfully."
+            return True
         else:
-            
-            return "Expense not found or does not belong to the user."
+            return None
 
     except Exception as e:
         session.rollback()  # Rollback the session in case of an error
@@ -68,12 +67,12 @@ def retrieve_last_expense_id(user_id):
     session = Session()
     try:
         # Perform the query with a join and select specific fields
-        expense_id = session.query(Expense.id)\
+        expense_record = session.query(Expense.id)\
                           .filter(Expense.user_id == user_id)\
                           .order_by(Expense.created_at.desc())\
-                          .limit(1)\
-                          .all()
+                          .first()
         logging.info(f'{user_id} last expense retrieved.')
+        expense_id = expense_record[0] if expense_record else None
         return expense_id
     except Exception as e:
         session.rollback()

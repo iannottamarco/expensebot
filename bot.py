@@ -1,5 +1,4 @@
 import logging
-import re
 import os
 import asyncio
 from datetime import datetime, timedelta
@@ -12,7 +11,8 @@ from telegram.ext import (
 from app.users import is_user_registered, create_user
 from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status, get_category_name
 from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
-from app.expenses import add_expense
+from app.expenses import add_expense, retrieve_last_expense_id, delete_expense
+from app.whispergpt import openai_transcribe, get_expensedata, add_expense_from_json
 
 ## Setup logging
 logging.basicConfig(
@@ -27,13 +27,10 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 API_KEY = os.getenv('API_KEY')
 
-
 #####################
 ## FLASK
 from app.flask_app import app as flask_app
 from threading import Thread
-
-
 
 ######################
 ## START
@@ -72,15 +69,79 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
+######################
+## VOICE EXPENSE
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if is_user_registered(user_id):
+        try:
+            user_id = update.effective_user.id
+            path = f"audio/{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.ogg"
+            voice_message = update.message.voice
+            voice_file = await context.bot.get_file(voice_message.file_id)
+
+            # Correctly using the download method
+            await voice_file.download_to_drive(custom_path=path)
+
+            # Transcribe
+            testo = openai_transcribe(path, user_id).text
+            # Get infor from text
+            outputgpt = get_expensedata(user_id, testo)
+            # Add expense
+            exp_details = add_expense_from_json(user_id, outputgpt)
+            expense_id = retrieve_last_expense_id(user_id)
+
+            # Create an inline keyboard with a button to delete the expense
+            keyboard = [
+                [InlineKeyboardButton("❌Delete Expense", callback_data=f'deleteexpense_{expense_id}')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(exp_details, reply_markup=reply_markup)
+            
+        except Exception as e:
+            print(f"Error: {e}")
+            await update.message.reply_text("There was an error processing your voice message.")
+    else:
+        # Respond to unregistered users
+        await update.message.reply_text("Please register to use this feature.")
+
+
+async def handle_expense_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    data = query.data
+
+    if data.startswith('deleteexpense_'):
+        expense_id = int(data.split('_')[1])
+        success = delete_expense(user_id, expense_id)
+        # Prepare response based on the operation success
+        if success:
+            response_message = "Expense deleted successfully. Add a new expense manually or send a voice message."
+        else:
+            response_message = "Failed to delete the expense."
+
+        await query.edit_message_text(text=response_message)
+
+    else:
+        logging.error(f"There was an error deleting the expense {expense_id} of user {user_id}")
+        await query.edit_message_text(text="There was an error deleting your expense.")
+
 
 ######################
 ## ADD EXPENSE
 EXPENSE_AMOUNT, EXPENSE_CATEGORY, EXPENSE_DESCRIPTION, EXPENSE_DATE = range(4)
 
 async def start_expensecreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    return await ask_expenseamount(update, context)
+    if update.message:
+        return await ask_expenseamount(update, context)
+    elif update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        return await ask_expenseamount(update, context)
 
 async def ask_expenseamount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -210,12 +271,20 @@ async def complete_expensecreation(update: Update, context: ContextTypes.DEFAULT
     # Validate the data and add the expense (validation and error handling not shown here)
     try:
         add_expense(user_id=user_id, amount=expense_amount, date=expense_date, category_id=expense_category_id, description=expense_description)
+        expense_id = retrieve_last_expense_id(user_id)
+        keyboard = [
+                [InlineKeyboardButton("❌Delete Expense", callback_data=f'deleteexpense_{expense_id}')]
+            ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         # Confirmation message to the user
         catname = get_category_name(user_id=user_id,category_id=expense_category_id)
-        await query.message.reply_text(f'Expense created!\nAmount: {expense_amount}\nCategory: {catname}\nDate: {expense_date}\n\nGo back to /start or create a /newexpense')
+
+        await query.message.reply_text(f"Expense added! Here are the info:\n 💶Amount: {expense_amount}€\n 🗂Category: {catname}\n 📅Date: {expense_date}\n 📃Description: {expense_description}",reply_markup=reply_markup)
+        
 
     except:
-        await query.message.reply_text('There was an error adding your expense.')
+        await query.message.reply_text("There was an error adding your expense.")
 
     return ConversationHandler.END
 
@@ -590,9 +659,21 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def run_bot():
     application = ApplicationBuilder().token(API_KEY).build()
 
+    ## COMMANDS
     #START
     start_handler = CommandHandler('start', start)
     application.add_handler(start_handler)
+    #NEW EXPENSE
+    newexpense_handler = CommandHandler('newexpense', start_expensecreation)
+    application.add_handler(newexpense_handler)
+
+
+    ## AUDIO HANDLER
+    voice_handler = MessageHandler(filters.VOICE, handle_voice_message)
+    application.add_handler(voice_handler)
+
+    expense_delete_handler = CallbackQueryHandler(handle_expense_delete, pattern='^deleteexpense_')
+    application.add_handler(expense_delete_handler)
 
     ## ADD EXPENSE FLOW
     newexpense_conv_handler = ConversationHandler(

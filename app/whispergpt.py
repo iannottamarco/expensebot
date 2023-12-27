@@ -1,77 +1,96 @@
 from .categories import get_categories_and_id
+from .expenses import add_expense
 
 import os 
+import json
 from dotenv import load_dotenv
 load_dotenv()
 
 import logging
 logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 from datetime import datetime
-from pydub import AudioSegment
 import openai
 client = openai.OpenAI(api_key=os.getenv('OPENAI_KEY'))
 
 
-def check_lenght(path):
-    try:
-        audio = AudioSegment.from_file(path)
-        duration = len(audio) / 1000.0
-        return round(duration,1)
-    except Exception as e:
-        logging.info(f"Audio duration retrieval not possible for: {e}")
-        return None
 
-
-def openai_transcribe(path):
+def openai_transcribe(path,user_id):
     try:
-        with open('audiotest/WhatsApp Ptt 2023-12-07 at 08.56.50.ogg', 'rb') as audio_file:
+        with open(path, 'rb') as audio_file:
             transcript = client.audio.transcriptions.create(model="whisper-1",
                                                             file= audio_file)
+            logging.info(f"Transcribed {user_id} voice message: {transcript}")
             return transcript
     except Exception as e:
-        logging.info(f"Audio transcription not possible for: {e}")
+        logging.error(f"{user_id} audio transcription not possible for: {e}")
 
-def get_info_from_text(user_id, textstring):
+
+def get_expensedata(user_id, textstring):
     today = datetime.utcnow()
-    categories = get_categories_and_id(user_id, type = 1)
+    user_categories = get_categories_and_id(user_id, type=1)
 
     system_message = {
-        "role":"system",
-        "content": f"""
-        You are a bot that extract customer expense data from phrases. You need to extract: amount, category and date.
-        Amount: is a number, might be decimal.
-        Category needs to be picked among these: {categories}, if yo do not find a matching category use None object.
-        Date: today is {today}, if not specified is {today}. Format needs to be year - month - day
-
-        The output must(!) be a list with three objects: amount, category and date. Like this:
-        [26, "Birre","2023-12-07"]
-        
-    """
+        "role": "system",
+        "content": f"You are a budget assistant. Extract expense information from the user's input and respond with the details in JSON format.\
+        These are the user categories: {user_categories}\
+        Include 'amount':value of the expense (decimal),\
+            'category_id': category unique identifier (integer),\
+            'category_name': the category name (string),\
+            'description': brief description of the expense (string),\
+            'date': today is {today}, if not specified set today (YYYY-MM-DD format),\
+             and 'error': use this field whenever you are not certain about one of the responses above, insert suggestions for user. (string).\
+        If you are not certain about any of the fields use None and valorize the 'error' field. Give detailed suggestions based on user laguage."
     }
 
     user_message = {
-        "role":"user",
+        "role": "user",
         "content": textstring
     }
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[system_message, user_message],
+            response_format={"type": "json_object"}  # Setting the response format to JSON
+        )
+        
+        logging.info(f"{user_id} expense info are {response.choices[0].message.content}")
+        logging.info(f"API call for user {user_id} costed {response.usage.total_tokens} tokens.")
+        
+        output = response.choices[0].message.content
+        output = str(output)
+        return output
+    
+    except Exception as e:
+        logging.error(f"Error in getting expense data for: {e}")
 
-    response = client.chat.completions.create(
-    model="gpt-3.5-turbo-1106",
-    messages=[system_message, user_message],
-    max_tokens=3800
-)
 
-    answer_gpt = response.choices[0].message.content
-    print(answer_gpt)
-    return answer_gpt
+def add_expense_from_json(user_id, json_output):
+    try:
+        expense_json = json.loads(json_output)
 
-get_info_from_text(17073726,"Ciao oggi ho speso 26 euro in bici")
+        if expense_json['error'] is None:
+            exp_user_id = user_id
+            exp_amount = expense_json['amount']
+            exp_cat_id = expense_json['category_id']
+            exp_cat_name = expense_json['category_name']
+            exp_description = expense_json['description']
+            exp_date = expense_json['date']
 
+        else:
+            return expense_json['error']
+        
+    except Exception as e:
+        logging.error(f"Wasn't able to convert string to json for {e}")
 
-# def audio_handler(path):
-#     if check_lenght(path) < 15:
-#         audio_text = openai_transcribe(path)
-#     else:
-#         return "Voice message is too long, it should be under 15 seconds."
+    try:
+        add_expense(user_id=exp_user_id, amount=exp_amount, category_id=exp_cat_id, description=exp_description, date=exp_date)
+
+        return f"Expense added! Here are the info:\n 💶Amount: {exp_amount}€\n 🗂Category: {exp_cat_name}\n 📅Date: {exp_date}\n 📃Description: {exp_description}"
+    
+    except Exception as e:
+        logging.error(f"Error in adding expense to the db for {e}")
+        return e
