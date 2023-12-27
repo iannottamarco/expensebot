@@ -13,23 +13,54 @@ logging.basicConfig(filename='./logs/mylogs.log',
 
 from datetime import datetime
 import openai
+from openai import OpenAIError
 client = openai.OpenAI(api_key=os.getenv('OPENAI_KEY'))
 
 
 
-def openai_transcribe(path,user_id):
+def openai_transcribe(path, user_id):
+    """
+    Transcribes an audio file using OpenAI's transcription service.
+
+    Args:
+        path (str): The path to the audio file to be transcribed.
+        user_id (int): The ID of the user for logging purposes.
+
+    Returns:
+        The transcription result from OpenAI if successful, None otherwise.
+
+    This function attempts to open and read the specified audio file, and then
+    uses OpenAI's transcription service to transcribe it. It logs information
+    about the transcription process, including successes and failures.
+    """
     try:
         with open(path, 'rb') as audio_file:
-            transcript = client.audio.transcriptions.create(model="whisper-1",
-                                                            file= audio_file)
-            logging.info(f"Transcribed {user_id} voice message: {transcript}")
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            logging.info(f"User {user_id}: Successfully transcribed voice message.")
             return transcript
+    except OpenAIError as oe:
+        logging.error(f"User {user_id}: OpenAI transcription error: {oe}")
+        return None
+    except IOError as ioe:
+        logging.error(f"User {user_id}: File I/O error: {ioe}")
+        return None
     except Exception as e:
-        logging.error(f"{user_id} audio transcription not possible for: {e}")
+        logging.error(f"User {user_id}: General error in audio transcription: {e}")
+        return None
 
 
 def get_expensedata(user_id, textstring):
-    today = datetime.utcnow()
+    """
+    Retrieves expense data from a given text string using GPT-4.
+
+    Args:
+        user_id (int): The ID of the user for logging.
+        textstring (str): The text string to be analyzed by the model.
+
+    Returns:
+        str: The JSON-formatted output from GPT-4 or an error message.
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
     user_categories = get_categories_and_id(user_id, type=1)
 
     system_message = {
@@ -57,40 +88,43 @@ def get_expensedata(user_id, textstring):
             response_format={"type": "json_object"}  # Setting the response format to JSON
         )
         
-        logging.info(f"{user_id} expense info are {response.choices[0].message.content}")
-        logging.info(f"API call for user {user_id} costed {response.usage.total_tokens} tokens.")
+        logging.info(f"User {user_id} expense info: {response.choices[0].message.content}")
+        logging.info(f"API call for user {user_id} cost {response.usage.total_tokens} tokens.")
         
-        output = response.choices[0].message.content
-        output = str(output)
+        output = str(response.choices[0].message.content)
         return output
     
+    except OpenAIError as oe:
+        logging.error(f"OpenAI chat completion error for user {user_id}: {oe}")
+        return None
+    
     except Exception as e:
-        logging.error(f"Error in getting expense data for: {e}")
+        logging.error(f"Unexpected error for user {user_id}: {e}")
+        return None
+    
 
+def parse_expense_json(json_output):
+    """
+    Parses a JSON string to extract expense details.
 
-def add_expense_from_json(user_id, json_output):
+    Args:
+        json_output (str): JSON-formatted string containing expense details.
+
+    Returns:
+        tuple: A tuple containing amount, category_id, description, date of the expense and error if present.
+    """
     try:
         expense_json = json.loads(json_output)
 
-        if expense_json['error'] is None:
-            exp_user_id = user_id
-            exp_amount = expense_json['amount']
-            exp_cat_id = expense_json['category_id']
-            exp_cat_name = expense_json['category_name']
-            exp_description = expense_json['description']
-            exp_date = expense_json['date']
+        # Extract details from JSON
+        exp_amount = expense_json.get('amount')
+        exp_cat_id = expense_json.get('category_id')
+        exp_description = expense_json.get('description')
+        exp_date = expense_json.get('date')
+        exp_error = expense_json.get('error')
 
-        else:
-            return expense_json['error']
-        
+        return exp_amount, exp_cat_id, exp_description, exp_date, exp_error
+
     except Exception as e:
-        logging.error(f"Wasn't able to convert string to json for {e}")
-
-    try:
-        add_expense(user_id=exp_user_id, amount=exp_amount, category_id=exp_cat_id, description=exp_description, date=exp_date)
-
-        return f"Expense added! Here are the info:\n 💶Amount: {exp_amount}€\n 🗂Category: {exp_cat_name}\n 📅Date: {exp_date}\n 📃Description: {exp_description}"
-    
-    except Exception as e:
-        logging.error(f"Error in adding expense to the db for {e}")
-        return e
+        logging.error(f"Error parsing JSON {json_output} for expense data: {e}")
+        return None
