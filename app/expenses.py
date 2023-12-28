@@ -1,14 +1,14 @@
+# Standard library imports
 import logging
-
-# Configure logging
-logging.basicConfig(filename='./logs/mylogs.log',
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    level=logging.DEBUG)
 
 # Import local modules
 from .db_utils import Session, add_to_session_and_close
 from .models import Expense, Category
 
+# Configure logging
+logging.basicConfig(filename='./logs/mylogs.log',
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
 
 def add_expense(amount, category_id, user_id, description, date):
     """

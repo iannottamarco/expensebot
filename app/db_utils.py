@@ -1,70 +1,98 @@
+# Standard library imports
+import os
+import logging
+
+# Third-party imports
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-import os
+from sqlalchemy.exc import SQLAlchemyError
+
+# Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-import logging
+# Configure logging
 logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
 
-
-## DATABASE SETUP
-def get_db_uri():
-    DATABASE_TYPE = 'mysql'
-    DB_DRIVER = 'pymysql'
-    USERNAME = os.getenv('DATABASE_USERNAME')
-    PASSWORD = os.getenv('DATABASE_PASSWORD')
-    DATABASE_NAME = 'expensebot'
-    DATABASE_HOST = os.getenv('DATABASE_HOST')
-    DATABASE_PORT = '3306'
-
-    # Constructing the connection string
-    DATABASE_URI = f'{DATABASE_TYPE}+{DB_DRIVER}://{USERNAME}:{PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}'
-    return DATABASE_URI
-
+# SSL arguments for database connection
 ssl_args = {
     'ssl': {
         'ca': './Misc/cacert.pem'
     }
 }
 
-# Creating the engine
-engine = create_engine(get_db_uri(), connect_args=ssl_args)
 
+def get_db_uri():
+    """
+    Constructs and returns the database URI for the MySQL database connection.
+
+    Returns:
+        str: The constructed database URI.
+    """
+    database_type = 'mysql'
+    db_driver = 'pymysql'
+    username = os.getenv('DATABASE_USERNAME')
+    password = os.getenv('DATABASE_PASSWORD')
+    database_name = 'expensebot'
+    database_host = os.getenv('DATABASE_HOST')
+    database_port = '3306'
+
+    # Constructing the connection string
+    return f'{database_type}+{db_driver}://{username}:{password}@{database_host}:{database_port}/{database_name}'
+
+
+
+# Creating the engine
+db_uri = get_db_uri()
+engine = create_engine(db_uri, connect_args=ssl_args)
+# Create the Session
 Session = sessionmaker(bind=engine)
 
 
 def add_to_session_and_close(session, obj):
+    """
+    Adds an object to the given SQLAlchemy session and commits the session.
+
+    Args:
+        session (Session): The SQLAlchemy session to which the object is added.
+        obj (object): The object to be added to the session.
+
+    Raises:
+        SQLAlchemyError: If there is an error during the database operation.
+    """
     try:
         session.add(obj)
         session.commit()
         logging.info(f'Object of type {type(obj).__name__} added successfully.')
-    except Exception as e:
+    except SQLAlchemyError as e:
         session.rollback()
-        logging.error(f'Error adding object: {e}')
-        raise  # Re-raise the exception if you want calling code to handle it as well
+        logging.error(f'Error adding object of type {type(obj).__name__}: {e}')
+        raise  # Reraising the exception to be handled by the caller
+    except Exception as e:
+        # Catching any other exceptions that are not related to SQLAlchemy
+        logging.error(f'Unexpected error: {e}')
+        raise
     finally:
         session.close()
-        logging.info('Session closed.')
+        logging.debug('Session closed.')
 
 
-def add_and_commit(session, obj):
-    try:
-        session.add(obj)
-        session.commit()
-        logging.info(f'Object {obj} added and committed successfully.')
-    except Exception as e:
-        session.rollback()
-        logging.error(f'Error during add and commit: {e}')
-        raise  # Re-raise the exception for the calling code to handle
+def confirm_operation(telegram_user_id, userprovided_id):
+    """
+    Confirms whether the provided user ID matches the Telegram user's ID.
 
+    Args:
+        telegram_user_id (int): The Telegram user's ID.
+        userprovided_id (int): The user-provided ID to be confirmed.
 
-def confirm_operation(telegram_user_id,userprovided_id):
+    Returns:
+        bool: True if the IDs match, False otherwise.
+    """
     if telegram_user_id == userprovided_id:
-        logging.info(f'{telegram_user_id} has confirmed the operation')
+        logging.info(f'User {telegram_user_id} has confirmed the operation')
         return True
     else:
-        logging.info(f'{telegram_user_id} failed confirming the operation')
+        logging.warning(f'User {telegram_user_id} failed confirming the operation')
         return False

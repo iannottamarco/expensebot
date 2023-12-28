@@ -12,7 +12,7 @@ from .models import Category
 # Configure logging
 logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 
 def add_category(user_id, name, description=None):
@@ -222,48 +222,72 @@ def get_categories(user_id, type=0):
 
 
 def get_categories_and_id(user_id, type=0):
-    '''
-    Type = 0: Fetch both active and inactive categories
-    Type = 1: Fetch only active categories
-    Type = 2: Fetch only inactive categories
-    '''
-    session = Session()
+    """
+    Fetches categories along with their IDs based on the specified type for a given user.
+
+    Args:
+        user_id (int): The user's ID for whom the categories are fetched.
+        type (int): Determines the type of categories to fetch. 
+                    0 for both active and inactive, 
+                    1 for only active, 
+                    2 for only inactive.
+
+    Returns:
+        list: A list of tuples, each containing the category name and ID, based on the specified type.
+
+    Raises:
+        SQLAlchemyError: If there is a database related error.
+        Exception: For any other unexpected errors.
+    """
     try:
-        query = session.query(Category.name, Category.id).filter(Category.user_id == user_id)
-        
-        if type == 1:  # Only active categories
-            query = query.filter(Category.active == True)
-        elif type == 2:  # Only inactive categories
-            query = query.filter(Category.active == False)
-        # If type == 0, no additional filter is applied
+        with Session() as session:
+            query = session.query(Category.name, Category.id).filter(Category.user_id == user_id)
+            
+            if type == 1: 
+                query = query.filter(Category.active == True)
+            elif type == 2:
+                query = query.filter(Category.active == False)
 
-        categories_tuples = query.all()
-        categories = [[category.name, category.id] for category in categories_tuples]
+            categories_tuples = query.all()
+            categories = [[category.name, category.id] for category in categories_tuples]
 
-        logging.info(f'Categories retrieved for user {user_id}.')
-        return categories
-    except Exception as e:
+            logging.info(f'Categories retrieved for user {user_id}.')
+            return categories
+
+    except SQLAlchemyError as e:
         logging.error(f'Error retrieving categories for user {user_id}: {e}')
-        return None
-    finally:
-        session.close()
+        raise
+    except Exception as e:
+        logging.error(f'Unexpected error while retrieving categories for user {user_id}: {e}')
+        raise
 
 
 def generate_categories_message(user_id, type=0):
-    '''
-    Type = 0 Generate list of both active and inactive categories
-    Type = 1 Generate list of active categories
-    Type = 2 Generate list of inactive categories
-    '''
+    """
+    Generates a message listing active and/or inactive categories for a given user.
+
+    Args:
+        user_id (int): The user's ID for whom the categories are listed.
+        type (int): Determines the type of categories to list. 
+                    0 for both active and inactive, 
+                    1 for only active, 
+                    2 for only inactive.
+
+    Returns:
+        str: A formatted message listing the requested categories.
+
+    Raises:
+        Exception: For any unexpected errors during the process.
+    """
     try:
         message = ""
 
-        if type in [0, 1]:
+        if type in [0, 1]:  # Generate list of active categories
             active_categories = get_categories(user_id, type=1)
             if active_categories:
                 message += "Active categories:\n" + "\n".join(active_categories) + "\n\n"
 
-        if type in [0, 2]:
+        if type in [0, 2]:  # Generate list of inactive categories
             inactive_categories = get_categories(user_id, type=2)
             if inactive_categories:
                 message += "Deactivated categories:\n" + "\n".join(inactive_categories)
@@ -272,21 +296,42 @@ def generate_categories_message(user_id, type=0):
             message = "No categories found."
 
         return message
+
     except Exception as e:
         logging.error(f'Error generating categories message for user {user_id}: {e}')
         return "An error occurred while retrieving categories."
 
 
-def get_category_name(user_id,category_id):
-    session = Session()
+def get_category_name(user_id, category_id):
+    """
+    Retrieves the name of a specific category for a given user based on the category ID.
 
+    Args:
+        user_id (int): The user's ID.
+        category_id (int): The ID of the category.
+
+    Returns:
+        str: The name of the category, or an error message if retrieval fails.
+
+    Raises:
+        SQLAlchemyError: If there is a database related error.
+        Exception: For any other unexpected errors.
+    """
     try:
-        category_name = session.query(Category)\
-                                   .filter(Category.user_id == user_id, 
-                                           Category.id == category_id)\
-                                   .first()
-        return category_name.name
-    
-    except Exception as e:
+        with Session() as session:
+            category = session.query(Category)\
+                              .filter(Category.user_id == user_id, 
+                                      Category.id == category_id)\
+                              .first()
+
+            if category is not None:
+                return category.name
+            else:
+                return "Category not found"
+
+    except SQLAlchemyError as e:
         logging.error(f'Error retrieving user category for {user_id} and category_id {category_id}: {e}')
-        return "An error occurred while retrieving category"
+        raise
+    except Exception as e:
+        logging.error(f'Unexpected error while retrieving category for {user_id} and category_id {category_id}: {e}')
+        raise
