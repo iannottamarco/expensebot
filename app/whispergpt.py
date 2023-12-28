@@ -1,21 +1,25 @@
-from .categories import get_categories_and_id
-from .expenses import add_expense
-
-import os 
+import os
 import json
+import logging
+from datetime import datetime
+import openai
+from openai import OpenAIError
+
+# Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-import logging
+# Configure logging
 logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
-from datetime import datetime
-import openai
-from openai import OpenAIError
+# Initialize OpenAI client
 client = openai.OpenAI(api_key=os.getenv('OPENAI_KEY'))
 
+# Import local modules
+from .categories import get_categories_and_id
+from .expenses import add_expense
 
 
 def openai_transcribe(path, user_id):

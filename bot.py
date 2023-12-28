@@ -12,7 +12,7 @@ from app.users import is_user_registered, create_user
 from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status, get_category_name
 from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
 from app.expenses import add_expense, retrieve_last_expense_id, delete_expense
-from app.whispergpt import openai_transcribe, get_expensedata, add_expense_from_json
+from app.whispergpt import openai_transcribe, get_expensedata, add_expense_from_json, parse_expense_json
 
 ## Setup logging
 logging.basicConfig(
@@ -88,17 +88,26 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             testo = openai_transcribe(path, user_id).text
             # Get infor from text
             outputgpt = get_expensedata(user_id, testo)
+
+            exp_amount, exp_cat_id, exp_description, exp_date, exp_error = parse_expense_json(outputgpt)
+
+            if exp_error:
+                await update.message.reply_text(exp_error)
+
+            else:
             # Add expense
-            exp_details = add_expense_from_json(user_id, outputgpt)
-            expense_id = retrieve_last_expense_id(user_id)
+                add_expense(user_id=user_id, amount=exp_amount, category_id=exp_cat_id, date=exp_date, description=exp_description)
+                catname = get_category_name(user_id=user_id,category_id=exp_cat_id)
+                expense_id = retrieve_last_expense_id(user_id)
 
-            # Create an inline keyboard with a button to delete the expense
-            keyboard = [
-                [InlineKeyboardButton("❌Delete Expense", callback_data=f'deleteexpense_{expense_id}')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+                # Create an inline keyboard with a button to delete the expense
+                keyboard = [
+                    [InlineKeyboardButton("❌Delete Expense", callback_data=f'deleteexpense_{expense_id}')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await update.message.reply_text(exp_details, reply_markup=reply_markup)
+                await update.message.reply_text(f"Expense added! Here are the info:\n 💶Amount: {exp_amount}€\n 🗂Category: {catname}\n 📅Date: {exp_date}\n 📃Description: {exp_description}",reply_markup=reply_markup)
+
             
         except Exception as e:
             print(f"Error: {e}")
@@ -136,12 +145,9 @@ async def handle_expense_delete(update: Update, context: ContextTypes.DEFAULT_TY
 EXPENSE_AMOUNT, EXPENSE_CATEGORY, EXPENSE_DESCRIPTION, EXPENSE_DATE = range(4)
 
 async def start_expensecreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        return await ask_expenseamount(update, context)
-    elif update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        return await ask_expenseamount(update, context)
+    query = update.callback_query
+    await query.answer()
+    return await ask_expenseamount(update, context)
 
 async def ask_expenseamount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
