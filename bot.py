@@ -8,11 +8,11 @@ from telegram.ext import (
     ApplicationBuilder, ContextTypes, ConversationHandler, MessageHandler, CommandHandler, filters, CallbackQueryHandler
 )
 # Import Functions
-from app.users import is_user_registered, create_user
+from app.users import is_user_registered, create_user, get_user_id
 from app.categories import add_category, generate_categories_message, get_categories_and_id, change_category_status, get_category_name
 from app.gsheet import add_basicinfo, extract_spreadsheet_id, get_google_auth_url
 from app.expenses import add_expense, retrieve_last_expense_id, delete_expense
-from app.whispergpt import openai_transcribe, get_expensedata, add_expense_from_json, parse_expense_json
+from app.whispergpt import openai_transcribe, get_expensedata, parse_expense_json
 
 ## Setup logging
 logging.basicConfig(
@@ -35,10 +35,11 @@ from threading import Thread
 ######################
 ## START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    tg_user_id = update.effective_user.id
+    user_id = get_user_id(tg_user_id)
 
-    if is_user_registered(user_id):
-        logger.info(f"Registered user {user_id} started the bot")
+    if is_user_registered(tg_user_id):
+        logger.info(f"Registered user with id:{user_id} started the bot")
         # Display a welcome back message with inline buttons for registered users
         keyboard = [
             [InlineKeyboardButton("💸 Add an Expense", callback_data='add_expense')],
@@ -49,13 +50,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await context.bot.send_message(
-            chat_id=user_id, 
+            chat_id=tg_user_id, 
             text="Welcome back! How can I assist you today?",
             reply_markup=reply_markup
         )
 
     else:
-        logger.info(f"Unregistered user {user_id} started the bot")
+        logger.info(f"Unregistered user with telegram id:{tg_user_id} started the bot")
         # Display a welcome message with inline buttons for unregistered users
         keyboard = [
             [InlineKeyboardButton("📝 Register", callback_data='register_user')],
@@ -64,7 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await context.bot.send_message(
-            chat_id=user_id, 
+            chat_id=tg_user_id, 
             text="👋 Welcome to @amibrokepybot, the bot that helps you quickly track your expenses 💸. Get started now and take control of your financial health! 📊",
             reply_markup=reply_markup
         )
@@ -72,12 +73,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ######################
 ## VOICE EXPENSE
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    tg_user_id = update.effective_user.id
+    user_id = get_user_id(tg_user_id)
 
-    if is_user_registered(user_id):
+    if is_user_registered(tg_user_id):
         try:
             user_id = update.effective_user.id
-            path = f"audio/{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.ogg"
+            path = f"audio/{user_id}_{datetime.now().strftime('%Y%m%d%H%M')}.ogg"
             voice_message = update.message.voice
             voice_file = await context.bot.get_file(voice_message.file_id)
 
@@ -121,7 +123,9 @@ async def handle_expense_delete(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
+
     data = query.data
 
     if data.startswith('deleteexpense_'):
@@ -152,8 +156,10 @@ async def start_expensecreation(update: Update, context: ContextTypes.DEFAULT_TY
 async def ask_expenseamount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
     
-    logger.info(f"Received callback query for expense amount from user: {query.from_user.id}")
+    logger.info(f"Received callback query for expense amount from user: {user_id}")
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -168,7 +174,8 @@ async def ask_expenseamount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_expensecategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data['expense_amount'] = update.message.text
-    user_id = update.message.from_user.id
+    tg_user_id = update.message.from_user.id
+    user_id = get_user_id(tg_user_id)
     
     # Fetch categories and their IDs
     categories = get_categories_and_id(user_id, 1)
@@ -198,10 +205,13 @@ async def ask_expensedescription(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()    
 
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
+
     category_id = query.data.split('_')[1]
     context.user_data['expense_category_id'] = category_id
 
-    logger.info(f"Received callback query for expense amount from user: {query.from_user.id}")
+    logger.info(f"Received callback query for expense amount from user: {user_id}")
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -263,7 +273,8 @@ async def complete_expensecreation(update: Update, context: ContextTypes.DEFAULT
     exp_date = query.data.split('_')[1]
     context.user_data['expense_date'] = exp_date
 
-    user_id = update.effective_user.id
+    tg_user_id = update.effective_user.id
+    user_id = get_user_id(tg_user_id)
     print(user_id)
     expense_amount = context.user_data.get('expense_amount')
     print(expense_amount)
@@ -358,8 +369,11 @@ async def start_categorycreation(update: Update, context: ContextTypes.DEFAULT_T
 async def ask_categoryname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
+
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
     
-    logger.info(f"Received callback query for category name from user: {query.from_user.id}")
+    logger.info(f"Received callback query for category name from user: {user_id}")
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -380,7 +394,9 @@ async def ask_categorydescription(update: Update, context: ContextTypes.DEFAULT_
 async def complete_categorycreation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['category_description'] = update.message.text
 
-    user_id = update.effective_user.id
+    tg_user_id = update.effective_user.id
+    user_id = get_user_id(tg_user_id)
+
     category_name = context.user_data.get('category_name')
     category_description = context.user_data.get('category_description')
 
@@ -397,7 +413,8 @@ async def send_inactive_category_list(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
 
     # Fetch categories and their IDs
     categories = get_categories_and_id(user_id, 1)  # 1 for active categories
@@ -425,7 +442,8 @@ async def handle_category_deactivation(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
     data = query.data
 
     if data.startswith('deactivate_'):
@@ -451,7 +469,8 @@ async def send_active_category_list(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
 
     # Fetch categories and their IDs
     categories = get_categories_and_id(user_id, 2)  # 2 for inactive categories
@@ -479,7 +498,9 @@ async def handle_category_reactivation(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
+
     data = query.data
 
     if data.startswith('reactivate_'):
@@ -505,7 +526,9 @@ async def list_categories_handler(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
+
     categories_message = generate_categories_message(user_id)
 
     keyboard = [
@@ -531,12 +554,15 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def ask_first_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
+
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
     
-    logger.info(f"Received callback query for first name from user: {query.from_user.id}")
+    logger.info(f"Received callback query for first name from user: {user_id}")
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.message.reply_text('Please enter your first name (optional):', reply_markup=reply_markup)
+    await query.message.reply_text('Please enter your first name:', reply_markup=reply_markup)
     logger.info("Asking user for their first name")
 
     return FIRST_NAME
@@ -547,55 +573,45 @@ async def ask_last_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Please enter your last name (optional):', reply_markup=reply_markup)
+    await update.message.reply_text('Please enter your last name:', reply_markup=reply_markup)
     
     return LAST_NAME
 
 
 async def ask_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check if 'email' key is already in user_data, which means this function has been called before
-    if 'email' in context.user_data:
-        user_input = update.message.text
-        context.user_data['email'] = user_input
-        
-    else:
-        # Store the last name from the previous step
-        context.user_data['last_name'] = update.message.text
+    context.user_data['last_name'] = update.message.text
 
-        # Prompt the user to enter their email
-        keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text('Please enter your email:', reply_markup=reply_markup)
+    # Prompt the user to enter their email
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Please enter your email:', reply_markup=reply_markup)
         
-        # Set a flag indicating that the email prompt has been shown
-        context.user_data['email'] = None
-        return EMAIL
+    return EMAIL
 
+
+async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['email'] = update.message.text
+    
+    tg_user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    email = context.user_data.get('email')
+    first_name = context.user_data.get('first_name')
+    last_name = context.user_data.get('last_name')
+
+    create_user(email, tg_user_id, chat_id, first_name, last_name)
+    await update.message.reply_text('Registration complete, go back to the home /start')
+    return ConversationHandler.END
 
 async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     await query.message.reply_text("Process cancelled /start again the bot.")
     # Resetting the user data if any was stored
     context.user_data.clear()
     # Redirect the user back to the homepage
     start(update, context)
     return ConversationHandler.END  # This line is crucial to reset the conversation state
-
-
-
-async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['email'] = update.message.text
-
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    email = context.user_data.get('email')
-    first_name = context.user_data.get('first_name')
-    last_name = context.user_data.get('last_name')
-
-    create_user(email, user_id, chat_id, first_name, last_name)
-    await update.message.reply_text('Registration complete, go back to the home /start')
-    return ConversationHandler.END
 
 ######################
 ## GET SPREADSHEET_ID
@@ -609,8 +625,11 @@ async def get_spreadsheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_spreadsheetid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
+
+    tg_user_id = query.from_user.id
+    user_id = get_user_id(tg_user_id)
     
-    logger.info(f"Received callback query for spreadsheet_id from user: {query.from_user.id}")
+    logger.info(f"Received callback query for spreadsheet_id from user: {user_id}")
     keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -641,7 +660,8 @@ async def complete_spreadsheetcreation(update: Update, context: ContextTypes.DEF
         await update.message.reply_text('The name should be no more than 15 characters. Please try again.')
         return SHEET_NAME
     
-    user_id = update.effective_user.id
+    tg_user_id = update.effective_user.id
+    user_id = get_user_id(tg_user_id)
     spreadsheet_id = context.user_data.get('spreadsheet_id')
     sheet_name = context.user_data.get('sheet_name')
 

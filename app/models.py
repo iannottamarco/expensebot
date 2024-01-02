@@ -1,10 +1,16 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, Boolean
-from sqlalchemy import create_engine
-from sqlalchemy.orm import relationship, declarative_base
-from .db_utils import get_db_uri, engine
+# Standard library imports
 from datetime import datetime
-
 import logging
+
+# Third-party imports
+from sqlalchemy import  Column, Integer, String, DateTime, Float, Boolean
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.exc import SQLAlchemyError
+
+# Local application imports
+from .db_utils import get_db_uri, engine
+
+# Configure logging
 logging.basicConfig(filename='./logs/mylogs.log',
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
@@ -70,3 +76,4 @@ if __name__ == '__main__':
     print("Creating tables...")
     Base.metadata.create_all(engine)
     print("Tables created successfully.")
+    print("Execute: ALTER TABLE users AUTO_INCREMENT = 10000 on database console")

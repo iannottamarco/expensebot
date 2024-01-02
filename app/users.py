@@ -14,6 +14,29 @@ logging.basicConfig(filename='./logs/mylogs.log',
                     level=logging.INFO)
 
 
+def get_user_id(telegram_id):
+    """
+    Retrieves the internal user ID from the provided Telegram ID.
+
+    Args:
+        telegram_id (int): The Telegram ID of the user.
+
+    Returns:
+        int: The internal user ID if the user is found, None otherwise.
+    """
+    try:
+        with Session() as session:
+            user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            if user:
+                return user.id
+            else:
+                logging.info(f'User with Telegram ID {telegram_id} not found.')
+                return None
+    except Exception as e:
+        logging.error(f'Error occurred while retrieving user ID for Telegram ID {telegram_id}: {e}')
+        raise
+
+
 def is_user_registered(telegram_id):
     """
     Checks whether a user is registered based on the given Telegram ID.
@@ -66,27 +89,31 @@ def create_user(email, telegram_id, chat_id=None, first_name=None, last_name=Non
         Exception: For any other unexpected errors.
     """
     try:
-        with Session() as session:
-            new_user = User(telegram_id=telegram_id, chat_id=chat_id, email=email, 
-                            first_name=first_name, last_name=last_name)
-            session.add(new_user)
-            session.commit()
-            return new_user
+        if is_user_registered(telegram_id):
+            logging.info("User already registered")
+            raise
+        else:
+            with Session() as session:
+                new_user = User(telegram_id=telegram_id, chat_id=chat_id, email=email, 
+                                first_name=first_name, last_name=last_name)
+                session.add(new_user)
+                session.commit()
+                return new_user
 
     except SQLAlchemyError as e:
-        logging.error(f'Error creating user {telegram_id}: {e}')
+        logging.error(f'Error creating user with telegram id: {telegram_id}: {e}')
         raise
     except Exception as e:
         logging.error(f'Unexpected error while creating user {telegram_id}: {e}')
         raise
 
 
-def delete_user(telegram_id):
+def delete_user(user_id):
     """
     Deletes a user based on the provided Telegram ID.
 
     Args:
-        telegram_id (int): The Telegram ID of the user to be deleted.
+        user_id (int): The ID of the user to be deleted.
 
     Returns:
         bool: True if the user was successfully deleted, False otherwise.
@@ -97,20 +124,20 @@ def delete_user(telegram_id):
     """
     try:
         with Session() as session:
-            user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            user = session.query(User).filter(User.id == user_id).first()
 
             if user:
                 session.delete(user)
                 session.commit()
-                logging.info(f'User with Telegram ID {telegram_id} deleted successfully.')
+                logging.info(f'User with ID {user_id} deleted successfully.')
                 return True
             else:
-                logging.warning(f'User with Telegram ID {telegram_id} not found for deletion.')
+                logging.warning(f'User with ID {user_id} not found for deletion.')
                 return False
 
     except SQLAlchemyError as e:
-        logging.error(f'Error occurred while deleting user with Telegram ID {telegram_id}: {e}')
+        logging.error(f'Error occurred while deleting user with ID {user_id}: {e}')
         raise
     except Exception as e:
-        logging.error(f'Unexpected error while deleting user with Telegram ID {telegram_id}: {e}')
+        logging.error(f'Unexpected error while deleting user with ID {user_id}: {e}')
         raise
